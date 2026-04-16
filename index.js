@@ -1,8 +1,6 @@
 import { chromium } from 'playwright';
 
-
 const browser = await chromium.connectOverCDP('http://localhost:9222', {  // Or 'firefox' or 'webkit'.
-    //   headless:false,
     isLocal: true
 });
 const page = await browser.newPage();
@@ -26,7 +24,8 @@ page.on('response', async (response) => {
             }
 
             if (foundExtensions.length > 0) {
-                await page.close();
+
+                // await page.close();
                 console.log(`\n[!] Fingerprinting script found at: ${response.url()}`);
                 console.table(foundExtensions); // Prints a nice terminal table
             }
