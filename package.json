@@ -1,0 +1,12 @@
+{
+  "name": "detect-linkedin",
+  "module": "index.js",
+  "type": "module",
+  "private": true,
+  "dependencies": {
+    "playwright": "^1.59.1"
+  },
+  "scripts": {
+    "start": "node ./"
+  }
+}
