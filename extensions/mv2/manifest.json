@@ -1,0 +1,35 @@
+{
+  "manifest_version": 2,
+  "name": "LinkedIn Extension Detector",
+  "version": "1.0",
+  "description": "Detects extension-fingerprinting scripts on web pages by scanning loaded JavaScript for known patterns.",
+  "permissions": [
+    "webRequest",
+    "webNavigation",
+    "<all_urls>"
+  ],
+  "background": {
+    "scripts": ["background.js"],
+    "persistent": true
+  },
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["content.js"],
+      "run_at": "document_start"
+    }
+  ],
+  "browser_action": {
+    "default_popup": "popup.html",
+    "default_icon": {
+      "16": "icon16.png",
+      "48": "icon48.png",
+      "128": "icon128.png"
+    }
+  },
+  "icons": {
+    "16": "icon16.png",
+    "48": "icon48.png",
+    "128": "icon128.png"
+  }
+}
