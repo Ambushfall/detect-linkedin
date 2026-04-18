@@ -17,10 +17,10 @@ google-chrome --remote-debugging-port=9222
 For the WXT-based extension (`extensions/wxt-mv3-a/`):
 ```bash
 cd extensions/wxt-mv3-a
-npm install
-npm run dev       # dev mode with HMR
-npm run build     # production build
-npm run zip       # package for distribution
+bun install
+bun run dev       # dev mode with HMR
+bun run build     # production build
+bun run zip       # package for distribution
 ```
 
 To load the plain extensions, use Chrome's `chrome://extensions` (Developer Mode → Load unpacked → select `extensions/mv2`, `extensions/mv3-a`, or `extensions/mv3-b`).
