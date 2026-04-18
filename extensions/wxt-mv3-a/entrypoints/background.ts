@@ -6,15 +6,8 @@ interface ScanResult {
 
 export default defineBackground(() => {
   // --- Startup: restore badge from persistent storage ---
-  (async () => {
-    const data = await browser.storage.local.get('linkedin');
-    const results = (data.linkedin as ScanResult[]) || [];
-    const count = results.length;
-    if (count > 0) {
-      await browser.action.setBadgeText({ text: String(count) });
-      await browser.action.setBadgeBackgroundColor({ color: '#FF4444' });
-    }
-  })();
+  InitBadgeWithStorage()
+  
 
   // --- webRequest listener: detect when script resources finish loading ---
   browser.webRequest.onCompleted.addListener(
@@ -57,3 +50,13 @@ export default defineBackground(() => {
 
   console.log('[Extension Detector] Service worker loaded (WXT MV3-A)');
 });
+
+async function InitBadgeWithStorage() {
+  const data = await browser.storage.local.get('linkedin');
+  const results = (data.linkedin as ScanResult[]) || [];
+  const count = results.length;
+  if (count > 0) {
+    await browser.action.setBadgeText({ text: String(count) });
+    await browser.action.setBadgeBackgroundColor({ color: '#FF4444' });
+  }
+}
