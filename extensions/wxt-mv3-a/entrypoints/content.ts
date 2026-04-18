@@ -31,8 +31,8 @@ async function scanUrl(url: string) {
 }
 
 export default defineContentScript({
-  matches: ['<all_urls>'],
-  runAt: 'document_start',
+  matches: ['*://www.linkedin.com/*'],
+  runAt: 'document_end',
   main() {
     browser.runtime.onMessage.addListener((message) => {
       if (message.type === 'SCAN_SCRIPT' && message.url) scanUrl(message.url as string);
