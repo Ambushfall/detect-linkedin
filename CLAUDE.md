@@ -20,6 +20,7 @@ cd extensions/wxt-mv3-a
 bun install
 bun run dev       # dev mode with HMR
 bun run build     # production build
+bun run compile   # TypeScript type-check without emitting
 bun run zip       # package for distribution
 ```
 
@@ -59,15 +60,18 @@ Connects to Chrome via CDP on `localhost:9222`, navigates to `linkedin.com/feed/
 - Results stored in **`chrome.storage.session`** keyed by `tab_<tabId>` — cleared on browser restart; badge is per-tab
 
 ### `extensions/wxt-mv3-a/` — WXT + React/TypeScript port of MV3-A
-- Built with [WXT](https://wxt.dev/) framework and React 19; TypeScript throughout
-- Entrypoints: `entrypoints/background.ts`, `entrypoints/content.ts`, `entrypoints/popup/`
-- Currently a scaffold — detection logic not yet ported from `mv3-a`
+- Built with [WXT](https://wxt.dev/) framework and React 19; TypeScript throughout; uses bun as package manager
+- Same detection approach as `mv3-a`: `webRequest` listener in the background, content script fetches and scans script bodies, results in `browser.storage.local`
+- WXT auto-imports `defineBackground`, `defineContentScript`, and `browser` in entrypoint files; React component files must explicitly `import { browser } from 'wxt/browser'`
+- Popup re-renders live via `browser.storage.onChanged` listener mounted in a `useEffect`
+- Entrypoints: `entrypoints/background.ts`, `entrypoints/content.ts`, `entrypoints/popup/` (React app)
+- Manifest permissions and host_permissions are declared in `wxt.config.ts`, not in a `manifest.json`
 
 ### Key architectural differences
 
-| | MV2 | MV3-A | MV3-B |
-|---|---|---|---|
-| Detection trigger | `webRequest` | `webRequest` | MAIN world hooks |
-| Storage | In-memory (per tab) | `storage.local` (global) | `storage.session` (per tab) |
-| Survives restart | No | Yes | No |
-| Badge scope | Per-tab | Global | Per-tab |
+| | MV2 | MV3-A | MV3-B | WXT MV3-A |
+|---|---|---|---|---|
+| Detection trigger | `webRequest` | `webRequest` | MAIN world hooks | `webRequest` |
+| Storage | In-memory (per tab) | `storage.local` (global) | `storage.session` (per tab) | `storage.local` (global) |
+| Survives restart | No | Yes | No | Yes |
+| Badge scope | Per-tab | Global | Per-tab | Global |

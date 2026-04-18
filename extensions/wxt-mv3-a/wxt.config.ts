@@ -1,3 +1,4 @@
+import tailwindcss from '@tailwindcss/vite';
 import { defineConfig } from 'wxt';
 
 // See https://wxt.dev/api/config.html
@@ -7,4 +8,7 @@ export default defineConfig({
     permissions: ['webRequest', 'storage', 'webNavigation'],
     host_permissions: ['<all_urls>'],
   },
+  vite: () => ({
+    plugins: [tailwindcss()]
+  })
 });
