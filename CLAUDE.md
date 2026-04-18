@@ -9,12 +9,21 @@ npm install       # install dependencies (Playwright)
 npm start         # run the Node.js Playwright scanner (index.js)
 ```
 
-To use the browser extensions, load them manually via Chrome's `chrome://extensions` page (enable Developer Mode → Load unpacked → select the desired `extensions/mv2`, `extensions/mv3-a`, or `extensions/mv3-b` directory).
-
-The Playwright script (`npm start`) requires a Chrome instance already running with remote debugging enabled:
+The Playwright script requires Chrome with remote debugging already running:
 ```bash
 google-chrome --remote-debugging-port=9222
 ```
+
+For the WXT-based extension (`extensions/wxt-mv3-a/`):
+```bash
+cd extensions/wxt-mv3-a
+npm install
+npm run dev       # dev mode with HMR
+npm run build     # production build
+npm run zip       # package for distribution
+```
+
+To load the plain extensions, use Chrome's `chrome://extensions` (Developer Mode → Load unpacked → select `extensions/mv2`, `extensions/mv3-a`, or `extensions/mv3-b`).
 
 ## Architecture
 
@@ -24,27 +33,41 @@ This project detects LinkedIn's browser extension fingerprinting — LinkedIn em
 /['"]?id['"]?\s*:\s*['"]([a-z]{32})['"]\s*,\s*['"]?file['"]?\s*:\s*['"]([^'"]+)['"]/g
 ```
 
-There are **four implementations** of this detection:
+Each match produces `{ extensionId, resourceFile, sourceUrl }`.
+
+There are **five implementations**:
 
 ### `index.js` — Node.js / Playwright scanner
-Connects to a running Chrome instance via CDP on `localhost:9222`, navigates to LinkedIn, intercepts all script responses, and prints matches via `console.table`. One-shot research tool.
+Connects to Chrome via CDP on `localhost:9222`, navigates to `linkedin.com/feed/`, intercepts all script responses, and prints matches via `console.table`. One-shot research tool.
 
 ### `extensions/mv2/` — Manifest V2 extension
 - Background page uses `chrome.webRequest.onCompleted` to capture script URLs, forwards them to the content script via `chrome.tabs.sendMessage`
 - Content script fetches the URL (from browser cache) and scans the body
-- Results stored in an in-memory object keyed by `tabId`
+- Results stored in an **in-memory object keyed by `tabId`** — lost on service worker restart
+- Badge is per-tab; cleared on navigation
 
 ### `extensions/mv3-a/` — Manifest V3, webRequest approach
-- Service worker (non-persistent) replaces the background page
-- Same `webRequest` + content script fetch pattern as MV2
-- Results persisted in `chrome.storage.session` to survive service worker restarts
+- Service worker replaces the background page; same `webRequest` + content script fetch pattern as MV2
+- Results stored in **`chrome.storage.local`** — persistent across browser restarts, global (not per-tab), deduplicated by `extensionId`
+- Badge is global (no `tabId`); restored from storage on service worker startup
 
 ### `extensions/mv3-b/` — Manifest V3, main-world monkey-patching
-- No `webRequest` — instead injects `main-world.js` into the page's **MAIN world** at `document_start`
-- `main-world.js` monkey-patches `window.fetch`, `XMLHttpRequest`, and a `MutationObserver` on `<script src>` tags to intercept responses before they're processed
-- Results are passed from MAIN world → isolated world via `window.postMessage` (channel: `__EXT_DETECTOR_RESULTS__`)
-- `content.js` relays messages from the page to the service worker via `chrome.runtime.sendMessage`
-- Service worker stores results in `chrome.storage.session` and updates the badge
+- No `webRequest` — injects `main-world.js` into the page's **MAIN world** at `document_start`
+- `main-world.js` monkey-patches `window.fetch`, `XMLHttpRequest`, and uses a `MutationObserver` on `<script src>` tags to intercept responses before they're processed
+- Results passed MAIN world → isolated world via `window.postMessage` (channel: `__EXT_DETECTOR_RESULTS__`)
+- `content.js` relays to the service worker via `chrome.runtime.sendMessage`
+- Results stored in **`chrome.storage.session`** keyed by `tab_<tabId>` — cleared on browser restart; badge is per-tab
 
-### Key architectural difference: MV3-A vs MV3-B
-MV3-A relies on `webRequest` (requires `declarativeNetRequest` or the older `webRequest` permission) and fetches script bodies from cache in the content script. MV3-B avoids `webRequest` entirely by hooking into the page's own JS execution context, which is more reliable but requires careful MAIN-world isolation.
+### `extensions/wxt-mv3-a/` — WXT + React/TypeScript port of MV3-A
+- Built with [WXT](https://wxt.dev/) framework and React 19; TypeScript throughout
+- Entrypoints: `entrypoints/background.ts`, `entrypoints/content.ts`, `entrypoints/popup/`
+- Currently a scaffold — detection logic not yet ported from `mv3-a`
+
+### Key architectural differences
+
+| | MV2 | MV3-A | MV3-B |
+|---|---|---|---|
+| Detection trigger | `webRequest` | `webRequest` | MAIN world hooks |
+| Storage | In-memory (per tab) | `storage.local` (global) | `storage.session` (per tab) |
+| Survives restart | No | Yes | No |
+| Badge scope | Per-tab | Global | Per-tab |

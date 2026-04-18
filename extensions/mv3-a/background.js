@@ -3,89 +3,57 @@
  *
  * Listens for completed script requests via chrome.webRequest,
  * forwards URLs to the content script for scanning, and stores
- * results in chrome.storage.session to survive service worker restarts.
+ * results in chrome.storage.local (persistent, global, deduplicated by extensionId).
  */
+
+// --- Startup: restore badge from persistent storage ---
+(async () => {
+  const data = await chrome.storage.local.get('linkedin');
+  const count = (data.linkedin || []).length;
+  if (count > 0) {
+    await chrome.action.setBadgeText({ text: String(count) });
+    await chrome.action.setBadgeBackgroundColor({ color: '#FF4444' });
+  }
+})();
 
 // --- webRequest listener: detect when script resources finish loading ---
 chrome.webRequest.onCompleted.addListener(
-  function (details) {
+  (details) => {
     if (details.tabId < 0) return;
 
     // Send the completed script URL to the content script for scanning
     chrome.tabs.sendMessage(
       details.tabId,
       { type: 'SCAN_SCRIPT', url: details.url }
-    ).catch(function () {
+    ).catch(() => {
       // Content script not injected in this tab — ignore
     });
   },
   { urls: ['<all_urls>'], types: ['script'] }
 );
 
-// --- Message listener: receive results from content script & serve popup ---
-chrome.runtime.onMessage.addListener(function (message, sender, sendResponse) {
+// --- Message listener: receive results from content script ---
+chrome.runtime.onMessage.addListener((message) => {
   if (message.type === 'SCAN_RESULTS') {
-    var tabId = sender.tab ? sender.tab.id : -1;
-    if (tabId < 0) return;
-
-    var storageKey = 'tab_' + tabId;
-
-    chrome.storage.session.get(storageKey, function (data) {
-      var existing = data[storageKey] || [];
-      var updated = existing.concat(message.results);
-
-      var obj = {};
-      obj[storageKey] = updated;
-
-      chrome.storage.session.set(obj, function () {
-        // Update badge
-        chrome.action.setBadgeText({
-          text: updated.length > 0 ? String(updated.length) : '',
-          tabId: tabId
-        });
-        chrome.action.setBadgeBackgroundColor({
-          color: '#FF4444',
-          tabId: tabId
-        });
-
-        console.log(
-          '[Extension Detector] Found ' +
-            message.results.length +
-            ' fingerprint(s) in tab ' +
-            tabId
-        );
-      });
-    });
-  }
-
-  if (message.type === 'GET_RESULTS') {
-    chrome.tabs.query({ active: true, currentWindow: true }, function (tabs) {
-      var tabId = tabs[0] ? tabs[0].id : -1;
-      var storageKey = 'tab_' + tabId;
-
-      chrome.storage.session.get(storageKey, function (data) {
-        sendResponse({ results: data[storageKey] || [] });
-      });
-    });
-    return true; // Keep message channel open for async response
+    handleScanResults(message);
   }
 });
 
-// --- Clean up when a tab is closed ---
-chrome.tabs.onRemoved.addListener(function (tabId) {
-  chrome.storage.session.remove('tab_' + tabId);
-});
+async function handleScanResults(message) {
+  const data = await chrome.storage.local.get('linkedin');
+  const existing = data.linkedin || [];
+  const existingIds = new Set(existing.map(r => r.extensionId));
 
-// --- Reset results when a tab navigates to a new page ---
-chrome.webNavigation.onBeforeNavigate.addListener(function (details) {
-  if (details.frameId === 0) {
-    var storageKey = 'tab_' + details.tabId;
-    chrome.storage.session.remove(storageKey);
-    chrome.action.setBadgeText({
-      text: '',
-      tabId: details.tabId
-    });
-  }
-});
+  const delta = message.results.filter(r => !existingIds.has(r.extensionId));
+  if (delta.length === 0) return;
+
+  const updated = existing.concat(delta);
+  await chrome.storage.local.set({ linkedin: updated });
+
+  await chrome.action.setBadgeText({ text: String(updated.length) });
+  await chrome.action.setBadgeBackgroundColor({ color: '#FF4444' });
+
+  console.log(`[Extension Detector] +${delta.length} new fingerprint(s), ${updated.length} total`);
+}
 
 console.log('[Extension Detector] Service worker loaded (MV3-A)');
