@@ -67,6 +67,12 @@ Connects to Chrome via CDP on `localhost:9222`, navigates to `linkedin.com/feed/
 - Entrypoints: `entrypoints/background.ts`, `entrypoints/content.ts`, `entrypoints/popup/` (React app)
 - Manifest permissions and host_permissions are declared in `wxt.config.ts`, not in a `manifest.json`
 
+### `react-components/` — Standalone UI prototype
+- Separate git repository (own `.git`) used to iterate on popup UI design in isolation
+- Contains `app.jsx` with hardcoded mock extension data, and two components: `ExtensionsList.jsx` and `ExtensionView.jsx`
+- Uses Tailwind CSS and `@/components/` path alias; no build toolchain or `package.json` — intended for use in an external dev environment (e.g. StackBlitz, Vite with alias config)
+- The components mirror what's used in the WXT extension popup (`entrypoints/popup/App.tsx`)
+
 ### Key architectural differences
 
 | | MV2 | MV3-A | MV3-B | WXT MV3-A |
