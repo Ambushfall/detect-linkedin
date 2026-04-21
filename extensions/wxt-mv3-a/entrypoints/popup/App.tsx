@@ -1,12 +1,8 @@
 import { useState, useEffect } from 'react';
 import { browser } from 'wxt/browser';
 import './App.css';
-
-interface ScanResult {
-  extensionId: string;
-  resourceFile: string;
-  sourceUrl: string;
-}
+import ExtensionsList from '@/components/ExtensionsList';
+import { type ScanResult } from '@/components/ExtensionView';
 
 function App() {
   const [results, setResults] = useState<ScanResult[]>([]);
@@ -37,39 +33,7 @@ function App() {
         </span>
       </div>
 
-      <div className="px-5 py-4 max-h-[400px] overflow-y-auto">
-        {results.length === 0 ? (
-          <div className="text-center py-8 px-4">
-            <div className="text-[36px] mb-3 opacity-50">🛡️</div>
-            <h2 className="text-sm font-semibold text-[#8899aa] mb-1.5">No fingerprinting detected</h2>
-            <p className="text-xs text-[#556677] leading-relaxed">
-              Navigate to a page and this extension will<br />scan loaded scripts for fingerprinting patterns.
-            </p>
-          </div>
-        ) : (
-          results.map((r, i) => (
-            <div
-              key={i}
-              className="bg-[rgba(255,255,255,0.03)] border border-[rgba(255,255,255,0.06)] rounded-lg py-3 px-3.5 mb-2 last:mb-0 hover:border-[rgba(0,212,255,0.2)] transition-colors"
-            >
-              <div className="flex items-start mb-1.5">
-                <span className="text-[10px] font-semibold uppercase tracking-[0.5px] text-[#556677] min-w-[70px] shrink-0 pt-px">Ext ID</span>
-                <span className="text-xs text-[#ff6b6b] break-all font-mono">{r.extensionId}</span>
-              </div>
-              <div className="flex items-start mb-1.5">
-                <span className="text-[10px] font-semibold uppercase tracking-[0.5px] text-[#556677] min-w-[70px] shrink-0 pt-px">File</span>
-                <span className="text-xs text-[#ffd93d] break-all font-mono">{r.resourceFile}</span>
-              </div>
-              <div className="flex items-start">
-                <span className="text-[10px] font-semibold uppercase tracking-[0.5px] text-[#556677] min-w-[70px] shrink-0 pt-px">Source</span>
-                <span className="text-[11px] text-[#69b4ff] break-all font-mono">
-                  {r.sourceUrl.length > 80 ? r.sourceUrl.slice(0, 80) + '…' : r.sourceUrl}
-                </span>
-              </div>
-            </div>
-          ))
-        )}
-      </div>
+      <ExtensionsList results={results} />
 
       <div className="px-5 py-2.5 border-t border-[rgba(255,255,255,0.05)] text-center">
         <span className="text-[10px] text-[#445566]">
