@@ -11,7 +11,6 @@ function getLastItemSplit(string : string,separator : string){
 }
 
 export default function ExtensionView({ result }: { result: ScanResult }) {
-  result.name = "asd"
   return (
     <div className="bg-[rgba(255,255,255,0.03)] border border-[rgba(255,255,255,0.06)] rounded-lg py-3 px-3.5 mb-2 last:mb-0 hover:border-[rgba(0,212,255,0.2)] transition-colors">
       <div className="flex items-stretch gap-2.5">

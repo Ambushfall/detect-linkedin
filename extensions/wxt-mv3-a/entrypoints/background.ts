@@ -2,6 +2,7 @@ interface ScanResult {
   extensionId: string;
   resourceFile: string;
   sourceUrl: string;
+  name?: string;
 }
 
 export default defineBackground(() => {
@@ -36,6 +37,38 @@ export default defineBackground(() => {
   console.log('[Extension Detector] Service worker loaded (WXT MV3-A)');
 });
 
+async function fetchExtensionNames(extensionIds: string[]): Promise<void> {
+  if (extensionIds.length === 0) return;
+
+  const nameResults = await Promise.all(
+    extensionIds.map(async (id) => {
+      try {
+        const response = await fetch(
+          `https://chrome.google.com/webstore/detail/TEXT/${id}`
+        );
+        if (!response.ok) return null;
+        const html = await response.text();
+        const match = html.match(/<title>([^<]*)<\/title>/i);
+        if (!match) return null;
+        return { extensionId: id, name: match[1].trim() };
+      } catch {
+        return null;
+      }
+    })
+  );
+
+  const successful = nameResults.filter((r) => r !== null) as { extensionId: string; name: string }[];
+  if (successful.length === 0) return;
+
+  const data = await browser.storage.local.get('linkedin');
+  const results: ScanResult[] = (data.linkedin as ScanResult[]) ?? [];
+  for (const { extensionId, name } of successful) {
+    const entry = results.find((r) => r.extensionId === extensionId);
+    if (entry) entry.name = name;
+  }
+  await browser.storage.local.set({ linkedin: results });
+}
+
 async function InitBadgeWithStorage() {
   const data = await browser.storage.local.get('linkedin');
   const results = (data.linkedin as ScanResult[]) || [];
@@ -44,6 +77,8 @@ async function InitBadgeWithStorage() {
     await browser.action.setBadgeText({ text: String(count) });
     await browser.action.setBadgeBackgroundColor({ color: '#FF4444' });
   }
+  const unnamed = results.filter((r) => !r.name).map((r) => r.extensionId);
+  fetchExtensionNames(unnamed);
 }
 
 async function handleScanResults(message: { type: string; results: ScanResult[] }) {
@@ -56,6 +91,7 @@ async function handleScanResults(message: { type: string; results: ScanResult[] 
 
     const updated = existing.concat(delta);
     await browser.storage.local.set({ linkedin: updated });
+    fetchExtensionNames(delta.map((r) => r.extensionId));
 
     await browser.action.setBadgeText({ text: String(updated.length) });
     await browser.action.setBadgeBackgroundColor({ color: '#FF4444' });
