@@ -28,7 +28,7 @@ function App() {
           🔍
         </div>
         <h1 className="text-[15px] font-semibold text-white tracking-[-0.2px]">Extension Detector</h1>
-        <span className="ml-auto bg-[rgba(0,212,255,0.12)] text-[#00d4ff] text-[11px] font-semibold px-2 py-[3px] rounded-[10px] border border-[rgba(0,212,255,0.2)]">
+        <span className="ml-auto bg-[rgba(0,212,255,0.12)] text-[#00d4ff] text-[11px] font-semibold px-2 py-0.75 rounded-[10px] border border-[rgba(0,212,255,0.2)]">
           {results.length > 0 ? results.length : '—'}
         </span>
       </div>
