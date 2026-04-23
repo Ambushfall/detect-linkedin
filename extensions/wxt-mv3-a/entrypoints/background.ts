@@ -31,7 +31,22 @@ export default defineBackground(() => {
     }
   });
 
-  async function handleScanResults(message: { type: string; results: ScanResult[] }) {
+  
+
+  console.log('[Extension Detector] Service worker loaded (WXT MV3-A)');
+});
+
+async function InitBadgeWithStorage() {
+  const data = await browser.storage.local.get('linkedin');
+  const results = (data.linkedin as ScanResult[]) || [];
+  const count = results.length;
+  if (count > 0) {
+    await browser.action.setBadgeText({ text: String(count) });
+    await browser.action.setBadgeBackgroundColor({ color: '#FF4444' });
+  }
+}
+
+async function handleScanResults(message: { type: string; results: ScanResult[] }) {
     const data = await browser.storage.local.get('linkedin');
     const existing = (data.linkedin as ScanResult[]) || [];
     const existingIds = new Set(existing.map((r) => r.extensionId));
@@ -47,16 +62,3 @@ export default defineBackground(() => {
 
     console.log(`[Extension Detector] +${delta.length} new fingerprint(s), ${updated.length} total`);
   }
-
-  console.log('[Extension Detector] Service worker loaded (WXT MV3-A)');
-});
-
-async function InitBadgeWithStorage() {
-  const data = await browser.storage.local.get('linkedin');
-  const results = (data.linkedin as ScanResult[]) || [];
-  const count = results.length;
-  if (count > 0) {
-    await browser.action.setBadgeText({ text: String(count) });
-    await browser.action.setBadgeBackgroundColor({ color: '#FF4444' });
-  }
-}

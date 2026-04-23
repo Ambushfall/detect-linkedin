@@ -6,6 +6,10 @@ export interface ScanResult {
   iconUrl?: string;
 }
 
+function getLastItemSplit(string : string,separator : string){
+  return string.split(separator)[string.split(separator).length - 1];
+}
+
 export default function ExtensionView({ result }: { result: ScanResult }) {
   result.name = "asd"
   return (
@@ -33,12 +37,12 @@ export default function ExtensionView({ result }: { result: ScanResult }) {
           </div>
           <div className="flex items-start mb-1.5">
             {/* <span className="text-[10px] font-semibold uppercase tracking-[0.5px] text-[#556677] min-w-[70px] shrink-0 pt-px">File</span> */}
-            <span className="text-xs text-[#ffd93d] break-all font-mono">{result.resourceFile}</span>
+            <span className="text-xs text-[#ffd93d] break-all font-mono">{getLastItemSplit(result.resourceFile, "\/")}</span>
           </div>
           <div className="flex items-start">
             {/* <span className="text-[10px] font-semibold uppercase tracking-[0.5px] text-[#556677] min-w-[70px] shrink-0 pt-px">Source</span> */}
             <span className="text-[11px] text-[#69b4ff] break-all font-mono">
-              {result.sourceUrl.length > 80 ? result.sourceUrl.slice(0, 80) + '…' : result.sourceUrl}
+              {getLastItemSplit(result.sourceUrl, "\/")}
             </span>
           </div>
         </div>

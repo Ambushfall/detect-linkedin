@@ -22,9 +22,9 @@ function App() {
   }, []);
 
   return (
-    <div className="min-w-[420px] max-w-[500px] bg-[#0f1923] text-[#e0e6ed] font-sans">
-      <div className="bg-gradient-to-br from-[#1a2a3a] to-[#0d1b2a] px-5 py-4 border-b border-[rgba(0,212,255,0.15)] flex items-center gap-3">
-        <div className="w-7 h-7 bg-gradient-to-br from-[#00d4ff] to-[#0099cc] rounded-md flex items-center justify-center text-sm shrink-0">
+    <div className="min-w-105 max-w-125 bg-[#0f1923] text-[#e0e6ed] font-sans">
+      <div className="bg-linear-to-br from-[#1a2a3a] to-[#0d1b2a] px-5 py-4 border-b border-[rgba(0,212,255,0.15)] flex items-center gap-3">
+        <div className="w-7 h-7 bg-linear-to-br from-[#00d4ff] to-[#0099cc] rounded-md flex items-center justify-center text-sm shrink-0">
           🔍
         </div>
         <h1 className="text-[15px] font-semibold text-white tracking-[-0.2px]">Extension Detector</h1>
