@@ -2,7 +2,7 @@ import ExtensionView, { type ScanResult } from '@/components/ExtensionView';
 
 export default function ExtensionsList({ results }: { results: ScanResult[] }) {
   return (
-    <div className="px-5 py-4 max-h-[400px] overflow-y-auto">
+    <div className="px-5 py-4 max-h-100 overflow-y-auto">
       {results.length === 0 ? (
         <div className="text-center py-8 px-4">
           <div className="text-[36px] mb-3 opacity-50">🛡️</div>
