@@ -44,13 +44,14 @@ async function fetchExtensionNames(extensionIds: string[]): Promise<void> {
     extensionIds.map(async (id) => {
       try {
         const response = await fetch(
-          `https://chrome.google.com/webstore/detail/TEXT/${id}`
+          `https://chromewebstore.google.com/detail/_/${id}`
         );
         if (!response.ok) return null;
         const html = await response.text();
         const match = html.match(/<title>([^<]*)<\/title>/i);
         if (!match) return null;
-        return { extensionId: id, name: match[1].trim() };
+        const name = match[1].replace(/ - Chrome Web Store$/, '').trim();
+        return { extensionId: id, name };
       } catch {
         return null;
       }
