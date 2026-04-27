@@ -6,7 +6,6 @@
     "strict": true,
     "outDir": "dist",
     "skipLibCheck": true,
-    "types": ["bun"]
   },
   "include": ["index.ts"]
 }
