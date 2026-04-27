@@ -79,10 +79,10 @@ page.on('response', async (response) => {
 
       if (foundExtensions.length > 0) {
         console.log(`\n[!] Fingerprinting script found at: ${response.url()}`);
-        for (const ext of foundExtensions) {
+        const now = new Date();
+        await Promise.all(foundExtensions.map(async (ext) => {
           console.log(`Fetching info for: ${ext.extensionId}`);
           const info = await fetchExtensionInfo(ext.extensionId);
-          const now = new Date();
           await Extension.findOneAndUpdate(
             { extensionId: ext.extensionId },
             {
@@ -98,7 +98,7 @@ page.on('response', async (response) => {
             { upsert: true },
           );
           console.log(`[✓] Upserted: ${ext.extensionId} (${info.name ?? 'unknown'})`);
-        }
+        }));
       }
     } catch {
       // Ignore files that can't be read
