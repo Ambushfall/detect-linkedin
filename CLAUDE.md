@@ -5,7 +5,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Commands
 
 ```bash
-npm install       # install dependencies (Playwright)
+npm install       # install dependencies (Playwright + better-sqlite3)
 npm start         # run the Node.js Playwright scanner (index.js)
 ```
 
@@ -18,10 +18,12 @@ For the WXT-based extension (`extensions/wxt-mv3-a/`):
 ```bash
 cd extensions/wxt-mv3-a
 bun install
-bun run dev       # dev mode with HMR
-bun run build     # production build
-bun run compile   # TypeScript type-check without emitting
-bun run zip       # package for distribution
+bun run dev              # dev mode with HMR (Chrome)
+bun run dev:firefox      # dev mode for Firefox
+bun run build            # production build (Chrome)
+bun run build:firefox    # production build for Firefox
+bun run compile          # TypeScript type-check without emitting
+bun run zip              # package for distribution
 ```
 
 To load the plain extensions, use Chrome's `chrome://extensions` (Developer Mode → Load unpacked → select `extensions/mv2`, `extensions/mv3-a`, or `extensions/mv3-b`).
@@ -39,7 +41,7 @@ Each match produces `{ extensionId, resourceFile, sourceUrl }`.
 There are **five implementations**:
 
 ### `index.js` — Node.js / Playwright scanner
-Connects to Chrome via CDP on `localhost:9222`, navigates to `linkedin.com/feed/`, intercepts all script responses, and prints matches via `console.table`. One-shot research tool.
+Connects to Chrome via CDP on `localhost:9222`, navigates to `linkedin.com/feed/`, intercepts all script responses, and persists results to a local SQLite database (`detections.db` via `better-sqlite3`). Three tables: `scans` (one row per run), `detections` (each regex match), and `extensions` (deduplicated by `extensionId`, upserted with name/store URL scraped from the Chrome Web Store). One-shot research tool.
 
 ### `extensions/mv2/` — Manifest V2 extension
 - Background page uses `chrome.webRequest.onCompleted` to capture script URLs, forwards them to the content script via `chrome.tabs.sendMessage`
@@ -65,13 +67,16 @@ Connects to Chrome via CDP on `localhost:9222`, navigates to `linkedin.com/feed/
 - WXT auto-imports `defineBackground`, `defineContentScript`, and `browser` in entrypoint files; React component files must explicitly `import { browser } from 'wxt/browser'`
 - Popup re-renders live via `browser.storage.onChanged` listener mounted in a `useEffect`
 - Entrypoints: `entrypoints/background.ts`, `entrypoints/content.ts`, `entrypoints/popup/` (React app)
+- Shared UI components live in `components/` (root of the extension, not inside `entrypoints/`); uses `@/components/` and `@/tools/` path aliases
+- `tools/fetcher.ts` contains a utility used by the popup for fetching extension metadata
 - Manifest permissions and host_permissions are declared in `wxt.config.ts`, not in a `manifest.json`
+- Uses Tailwind CSS v4 via `@tailwindcss/vite` plugin (not v3)
 
 ### `react-components/` — Standalone UI prototype
 - Separate git repository (own `.git`) used to iterate on popup UI design in isolation
 - Contains `app.jsx` with hardcoded mock extension data, and two components: `ExtensionsList.jsx` and `ExtensionView.jsx`
 - Uses Tailwind CSS and `@/components/` path alias; no build toolchain or `package.json` — intended for use in an external dev environment (e.g. StackBlitz, Vite with alias config)
-- The components mirror what's used in the WXT extension popup (`entrypoints/popup/App.tsx`)
+- The components mirror `extensions/wxt-mv3-a/components/` (`ExtensionsList.tsx`, `ExtensionView.tsx`)
 
 ### Key architectural differences
 
