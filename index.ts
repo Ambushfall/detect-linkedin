@@ -32,28 +32,32 @@ const Extension = model<IExtension>('Extension', extensionSchema);
 // --- Chrome Web Store metadata fetcher ---
 async function fetchExtensionInfo(
   extensionId: string,
-  maxRetries = 3,
 ): Promise<{ extensionId: string; name: string | null; storeUrl: string | null }> {
   const storeUrl = `https://chromewebstore.google.com/detail/${extensionId}`;
-  for (let attempt = 0; attempt < maxRetries; attempt++) {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 60_000);
-    try {
-      const pageRes = await fetch(storeUrl, { signal: controller.signal });
-      const html = await pageRes.text();
-      const titleMatch = html.match(/<title>([^<]+?)(?:\s*-\s*Chrome Web Store)?<\/title>/i);
-      const name = titleMatch && titleMatch[1] && !titleMatch[1].includes('Chrome Web Store')
-        ? titleMatch[1].trim()
-        : null;
-      return { extensionId, name, storeUrl };
-    } catch {
-      if (attempt + 1 < maxRetries) console.log(`[~] Retry ${attempt + 1}/${maxRetries} for ${extensionId}`);
-    } finally {
-      clearTimeout(timer);
-    }
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 10_000);
+  try {
+    const pageRes = await fetch(storeUrl, { signal: controller.signal });
+    const html = await pageRes.text();
+    const titleMatch = html.match(/<title>([^<]+?)(?:\s*-\s*Chrome Web Store)?<\/title>/i);
+    const name = titleMatch && titleMatch[1] && !titleMatch[1].includes('Chrome Web Store')
+      ? titleMatch[1].trim()
+      : null;
+    return { extensionId, name, storeUrl };
+  } catch {
+    return { extensionId, name: '(fetch error)', storeUrl: null };
+  } finally {
+    clearTimeout(timer);
   }
-  return { extensionId, name: '(fetch error)', storeUrl: null };
 }
+
+const MAX_RETRY_ATTEMPTS = 10;
+const retryQueue: Array<{
+  extensionId: string;
+  resourceFile: string;
+  sourceScriptUrl: string;
+  attempts: number;
+}> = [];
 
 // --- Main ---
 const TARGET_URL = 'https://www.linkedin.com/';
@@ -89,25 +93,51 @@ page.on('response', async (response) => {
 
       if (foundExtensions.length > 0) {
         console.log(`\n[!] Fingerprinting script found at: ${response.url()}`);
+        const ids = foundExtensions.map(e => e.extensionId);
+        const existing = await Extension.find(
+          { extensionId: { $in: ids }, name: { $nin: ['(fetch error)', null] } },
+          { extensionId: 1 },
+        ).lean();
+        const knownIds = new Set(existing.map(e => e.extensionId));
+
         const now = new Date();
         await Promise.all(foundExtensions.map(async (ext) => {
+          if (knownIds.has(ext.extensionId)) {
+            await Extension.updateOne(
+              { extensionId: ext.extensionId },
+              { $set: { resourceFile: ext.resourceFile, sourceScriptUrl: response.url(), lastSeen: now } },
+            );
+            console.log(`[=] Skipped (known): ${ext.extensionId}`);
+            return;
+          }
+
           console.log(`Fetching info for: ${ext.extensionId}`);
           const info = await fetchExtensionInfo(ext.extensionId);
-          await Extension.findOneAndUpdate(
-            { extensionId: ext.extensionId },
-            {
-              $set: {
-                resourceFile: ext.resourceFile,
-                sourceScriptUrl: response.url(),
-                name: info.name ?? undefined,
-                storeUrl: info.storeUrl ?? undefined,
-                lastSeen: now,
+          if (info.name !== '(fetch error)') {
+            await Extension.findOneAndUpdate(
+              { extensionId: ext.extensionId },
+              {
+                $set: {
+                  resourceFile: ext.resourceFile,
+                  sourceScriptUrl: response.url(),
+                  name: info.name ?? undefined,
+                  storeUrl: info.storeUrl ?? undefined,
+                  lastSeen: now,
+                },
+                $setOnInsert: { firstSeen: now },
               },
-              $setOnInsert: { firstSeen: now },
-            },
-            { upsert: true },
-          );
-          console.log(`[✓] Upserted: ${ext.extensionId} (${info.name ?? 'unknown'})`);
+              { upsert: true },
+            );
+            console.log(`[✓] Upserted: ${ext.extensionId} (${info.name ?? 'unknown'})`);
+          } else {
+            retryQueue.push({
+              extensionId: ext.extensionId,
+              resourceFile: ext.resourceFile,
+              sourceScriptUrl: response.url(),
+              attempts: 1,
+            });
+            console.log(`[!] Queued for retry: ${ext.extensionId}`);
+          }
         }));
       }
     } catch {
@@ -119,6 +149,52 @@ page.on('response', async (response) => {
 console.log('Navigating and scanning...');
 await page.goto(TARGET_URL, { waitUntil: 'domcontentloaded' });
 console.log('\n[*] Scan complete.\n');
+
+if (retryQueue.length > 0) {
+  console.log(`[~] Draining retry queue (${retryQueue.length} items)...`);
+  while (retryQueue.length > 0) {
+    const item = retryQueue.shift()!;
+    await new Promise(r => setTimeout(r, 100));
+    console.log(`[~] Retry attempt ${item.attempts} for ${item.extensionId}`);
+    const info = await fetchExtensionInfo(item.extensionId);
+    const now = new Date();
+    if (info.name !== '(fetch error)') {
+      await Extension.findOneAndUpdate(
+        { extensionId: item.extensionId },
+        {
+          $set: {
+            resourceFile: item.resourceFile,
+            sourceScriptUrl: item.sourceScriptUrl,
+            name: info.name ?? undefined,
+            storeUrl: info.storeUrl ?? undefined,
+            lastSeen: now,
+          },
+          $setOnInsert: { firstSeen: now },
+        },
+        { upsert: true },
+      );
+      console.log(`[✓] Retry OK: ${item.extensionId} (${info.name ?? 'unknown'})`);
+    } else if (item.attempts < MAX_RETRY_ATTEMPTS) {
+      retryQueue.push({ ...item, attempts: item.attempts + 1 });
+    } else {
+      await Extension.findOneAndUpdate(
+        { extensionId: item.extensionId },
+        {
+          $set: {
+            resourceFile: item.resourceFile,
+            sourceScriptUrl: item.sourceScriptUrl,
+            name: '(fetch error)',
+            lastSeen: now,
+          },
+          $setOnInsert: { firstSeen: now },
+        },
+        { upsert: true },
+      );
+      console.log(`[✗] Gave up: ${item.extensionId}`);
+    }
+  }
+  console.log('[*] Retry queue drained.\n');
+}
 
 page.on('close', async () => {
   console.log('[+] Browser closed');
