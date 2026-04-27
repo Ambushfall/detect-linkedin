@@ -27,7 +27,6 @@ db.exec(`
     CREATE TABLE IF NOT EXISTS extensions (
         extension_id TEXT PRIMARY KEY,
         name TEXT,
-        version TEXT,
         store_url TEXT,
         first_seen TEXT NOT NULL DEFAULT (datetime('now')),
         last_seen TEXT NOT NULL DEFAULT (datetime('now'))
@@ -40,60 +39,40 @@ const insertDetection = db.prepare(`
     VALUES (?, ?, ?, ?)
 `);
 const upsertExtension = db.prepare(`
-    INSERT INTO extensions (extension_id, name, version, store_url)
-    VALUES (?, ?, ?, ?)
+    INSERT INTO extensions (extension_id, name, store_url)
+    VALUES (?, ?, ?)
     ON CONFLICT(extension_id) DO UPDATE SET
         name = COALESCE(excluded.name, extensions.name),
-        version = COALESCE(excluded.version, extensions.version),
         store_url = COALESCE(excluded.store_url, extensions.store_url),
         last_seen = datetime('now')
 `);
 
 // --- Chrome Web Store metadata fetcher ---
 async function fetchExtensionInfo(extensionId) {
-    const updateUrl = `https://clients2.google.com/service/update2/crx?response=updatecheck&acceptformat=crx2,crx3&prodversion=130.0&x=id%3D${extensionId}%26installsource%3Dondemand%26uc`;
+    
+    const storeUrl = `https://chromewebstore.google.com/detail/${extensionId}`;
 
+    // Try to get the name from the Chrome Web Store page
+    let name = null;
     try {
-        const res = await fetch(updateUrl);
-        const xml = await res.text();
-        // console.log(xml)
-        // Parse version from the XML update response
-        const versionMatch = xml.match(/version="([^"]+)"/);
-        const version = versionMatch ? versionMatch[1] : null;
+        const pageRes = await fetch(storeUrl);
+        const html = await pageRes.text();
 
-        // Check if the extension actually exists (status="ok" with an updatecheck that has a version)
-        const exists = xml.includes('status="ok"') && version;
-
-        const storeUrl = `https://chromewebstore.google.com/detail/${extensionId}`;
-
-        // Try to get the name from the Chrome Web Store page
-        let name = null;
-        try {
-            const pageRes = await fetch(storeUrl, {
-                headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' }
-            });
-            const html = await pageRes.text();
-
-            // Extract title from the page — Chrome Web Store puts it in <title>Name - Chrome Web Store</title>
-            const titleMatch = html.match(/<title>([^<]+?)(?:\s*-\s*Chrome Web Store)?<\/title>/i);
-            if (titleMatch && titleMatch[1] && !titleMatch[1].includes('Chrome Web Store')) {
-                name = titleMatch[1].trim();
-            }
-        } catch {
-            // Couldn't fetch the store page — not critical
+        // Extract title from the page — Chrome Web Store puts it in <title>Name - Chrome Web Store</title>
+        const titleMatch = html.match(/<title>([^<]+?)(?:\s*-\s*Chrome Web Store)?<\/title>/i);
+        if (titleMatch && titleMatch[1] && !titleMatch[1].includes('Chrome Web Store')) {
+            name = titleMatch[1].trim();
         }
 
         return {
             extensionId,
-            name: name || (exists ? '(unknown name)' : '(not found in store)'),
-            version: version || 'unknown',
-            storeUrl: exists ? storeUrl : null
+            name: name,
+            storeUrl: storeUrl
         };
     } catch (error) {
         return {
             extensionId,
             name: '(fetch error)',
-            version: 'unknown',
             storeUrl: null
         };
     }
@@ -145,12 +124,12 @@ page.on('response', async (response) => {
                     allDetections.push({ ...ext, sourceUrl: response.url() });
 
 
-                    console.log(`    Fetching info for: ${ext.extensionId}`);
+                    console.log(`Fetching info for: ${ext.extensionId}`);
                     const info = await fetchExtensionInfo(ext.extensionId);
                     extensionDetails.push(info);
-
+                    console.log('fetching done')
                     // Upsert into extensions table
-                    upsertExtension.run(info.extensionId, info.name, info.version, info.storeUrl);
+                    upsertExtension.run(info.extensionId, info.name, info.storeUrl);
                 }
                 console.log('\n[✓] Extension metadata:');
                 console.table(extensionDetails[0]);
