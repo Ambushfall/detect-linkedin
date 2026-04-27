@@ -37,7 +37,7 @@ async function fetchExtensionInfo(
   const storeUrl = `https://chromewebstore.google.com/detail/${extensionId}`;
   for (let attempt = 0; attempt < maxRetries; attempt++) {
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 10_000);
+    const timer = setTimeout(() => controller.abort(), 60_000);
     try {
       const pageRes = await fetch(storeUrl, { signal: controller.signal });
       const html = await pageRes.text();
