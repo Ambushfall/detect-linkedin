@@ -56,7 +56,7 @@ async function fetchExtensionInfo(extensionId) {
     try {
         const res = await fetch(updateUrl);
         const xml = await res.text();
-
+        // console.log(xml)
         // Parse version from the XML update response
         const versionMatch = xml.match(/version="([^"]+)"/);
         const version = versionMatch ? versionMatch[1] : null;
