@@ -3,11 +3,18 @@ import { browser } from 'wxt/browser';
 import './App.css';
 import ExtensionsList from '@/components/ExtensionsList';
 import { type ScanResult } from '@/components/ExtensionView';
+import newFetch from '@/tools/fetcher';
 
 function App() {
   const [results, setResults] = useState<ScanResult[]>([]);
-
+  async function fetcher(){
+    let res = await newFetch("https://chromewebstore.google.com/detail/text-to-video-ai-video-cr/aaaeoelkococjpgngfokhbkkfiiegolp");
+    await browser.runtime.sendMessage({ type: 'test', results: res });
+  }
+// TODO ChromeMV3Test eval if newfetch would work with same trick, if yes, mimick same in output and eval.
+// TODO If Not, figure out a different way at least to post to a diff location and save the refference data.
   useEffect(() => {
+    fetcher()
     browser.storage.local.get('linkedin').then((data) => {
       setResults((data.linkedin as ScanResult[]) || []);
     });

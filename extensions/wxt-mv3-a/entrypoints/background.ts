@@ -30,6 +30,9 @@ export default defineBackground(() => {
     if (message.type === 'SCAN_RESULTS') {
       handleScanResults(message as { type: string; results: ScanResult[] });
     }
+    if(message.type === "test"){
+      console.log(message)
+    }
   });
 
   
