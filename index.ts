@@ -30,19 +30,29 @@ const extensionSchema = new Schema<IExtension>({
 const Extension = model<IExtension>('Extension', extensionSchema);
 
 // --- Chrome Web Store metadata fetcher ---
-async function fetchExtensionInfo(extensionId: string): Promise<{ extensionId: string; name: string | null; storeUrl: string | null }> {
+async function fetchExtensionInfo(
+  extensionId: string,
+  maxRetries = 3,
+): Promise<{ extensionId: string; name: string | null; storeUrl: string | null }> {
   const storeUrl = `https://chromewebstore.google.com/detail/${extensionId}`;
-  try {
-    const pageRes = await fetch(storeUrl);
-    const html = await pageRes.text();
-    const titleMatch = html.match(/<title>([^<]+?)(?:\s*-\s*Chrome Web Store)?<\/title>/i);
-    const name = titleMatch && titleMatch[1] && !titleMatch[1].includes('Chrome Web Store')
-      ? titleMatch[1].trim()
-      : null;
-    return { extensionId, name, storeUrl };
-  } catch {
-    return { extensionId, name: '(fetch error)', storeUrl: null };
+  for (let attempt = 0; attempt < maxRetries; attempt++) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 10_000);
+    try {
+      const pageRes = await fetch(storeUrl, { signal: controller.signal });
+      const html = await pageRes.text();
+      const titleMatch = html.match(/<title>([^<]+?)(?:\s*-\s*Chrome Web Store)?<\/title>/i);
+      const name = titleMatch && titleMatch[1] && !titleMatch[1].includes('Chrome Web Store')
+        ? titleMatch[1].trim()
+        : null;
+      return { extensionId, name, storeUrl };
+    } catch {
+      if (attempt + 1 < maxRetries) console.log(`[~] Retry ${attempt + 1}/${maxRetries} for ${extensionId}`);
+    } finally {
+      clearTimeout(timer);
+    }
   }
+  return { extensionId, name: '(fetch error)', storeUrl: null };
 }
 
 // --- Main ---
