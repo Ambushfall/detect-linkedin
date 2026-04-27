@@ -52,12 +52,97 @@ async function fetchExtensionInfo(
 }
 
 const MAX_RETRY_ATTEMPTS = 10;
-const retryQueue: Array<{
+
+type ExtensionState = 'pending' | 'fetching' | 'complete' | 'failed';
+
+class ExtensionRecord {
   extensionId: string;
   resourceFile: string;
   sourceScriptUrl: string;
   attempts: number;
-}> = [];
+  state: ExtensionState;
+
+  constructor(
+    extensionId: string,
+    resourceFile: string,
+    sourceScriptUrl: string,
+    initialState: ExtensionState = 'pending',
+    attempts = 0,
+  ) {
+    this.extensionId = extensionId;
+    this.resourceFile = resourceFile;
+    this.sourceScriptUrl = sourceScriptUrl;
+    this.state = initialState;
+    this.attempts = attempts;
+  }
+
+  get isRetriable(): boolean {
+    return this.state === 'pending' ||
+      (this.state === 'failed' && this.attempts < MAX_RETRY_ATTEMPTS);
+  }
+
+  async process(): Promise<void> {
+    this.state = 'fetching';
+    this.attempts++;
+    const info = await fetchExtensionInfo(this.extensionId);
+    const now = new Date();
+    if (info.name !== '(fetch error)') {
+      await Extension.findOneAndUpdate(
+        { extensionId: this.extensionId },
+        {
+          $set: {
+            resourceFile: this.resourceFile,
+            sourceScriptUrl: this.sourceScriptUrl,
+            name: info.name ?? undefined,
+            storeUrl: info.storeUrl ?? undefined,
+            lastSeen: now,
+          },
+          $setOnInsert: { firstSeen: now },
+        },
+        { upsert: true },
+      );
+      this.state = 'complete';
+      console.log(`[✓] Complete: ${this.extensionId} (${info.name ?? 'unknown'})`);
+    } else {
+      this.state = 'failed';
+      if (this.attempts >= MAX_RETRY_ATTEMPTS) {
+        await Extension.findOneAndUpdate(
+          { extensionId: this.extensionId },
+          {
+            $set: {
+              resourceFile: this.resourceFile,
+              sourceScriptUrl: this.sourceScriptUrl,
+              name: '(fetch error)',
+              lastSeen: now,
+            },
+            $setOnInsert: { firstSeen: now },
+          },
+          { upsert: true },
+        );
+        console.log(`[✗] Gave up: ${this.extensionId}`);
+      } else {
+        console.log(`[!] Failed (attempt ${this.attempts}): ${this.extensionId}`);
+      }
+    }
+  }
+}
+
+const registry = new Map<string, ExtensionRecord>();
+let activeHandlers = 0;
+let scanDone = false;
+
+async function runProcessor(): Promise<void> {
+  while (true) {
+    const next = [...registry.values()].find(r => r.isRetriable);
+    if (!next) {
+      if (scanDone && activeHandlers === 0) break;
+      await new Promise(r => setTimeout(r, 50));
+      continue;
+    }
+    await next.process();
+    await new Promise(r => setTimeout(r, 100));
+  }
+}
 
 // --- Main ---
 const TARGET_URL = 'https://www.linkedin.com/';
@@ -68,6 +153,17 @@ await mongoose.connect(MONGO_URI!, {
   authMechanism: "DEFAULT", authSource: MONGO_AUTH, auth: {username: MONGO_USER, password: MONGO_PASS}
 });
 console.log('[*] Connected to MongoDB');
+
+const failedDocs = await Extension.find(
+  { name: '(fetch error)' },
+  { extensionId: 1, resourceFile: 1, sourceScriptUrl: 1 },
+).lean();
+for (const doc of failedDocs) {
+  registry.set(doc.extensionId, new ExtensionRecord(
+    doc.extensionId, doc.resourceFile, doc.sourceScriptUrl, 'failed', 0,
+  ));
+}
+console.log(`[*] Pre-loaded ${failedDocs.length} failed record(s) from DB`);
 
 const browser = await chromium.connectOverCDP('http://localhost:9222', { isLocal: true });
 const contexts = browser.contexts()
@@ -81,6 +177,7 @@ const extensionPattern = /['"]?id['"]?\s*:\s*['"]([a-z]{32})['"]\s*,\s*['"]?file
 
 page.on('response', async (response) => {
   if (response.request().resourceType() === 'script' || response.url().endsWith('.js')) {
+    activeHandlers++;
     try {
       const body = await response.text();
       const foundExtensions: { extensionId: string; resourceFile: string }[] = [];
@@ -93,108 +190,43 @@ page.on('response', async (response) => {
 
       if (foundExtensions.length > 0) {
         console.log(`\n[!] Fingerprinting script found at: ${response.url()}`);
-        const ids = foundExtensions.map(e => e.extensionId);
-        const existing = await Extension.find(
-          { extensionId: { $in: ids }, name: { $nin: ['(fetch error)', null] } },
-          { extensionId: 1 },
-        ).lean();
-        const knownIds = new Set(existing.map(e => e.extensionId));
-
-        const now = new Date();
-        await Promise.all(foundExtensions.map(async (ext) => {
-          if (knownIds.has(ext.extensionId)) {
-            await Extension.updateOne(
-              { extensionId: ext.extensionId },
-              { $set: { resourceFile: ext.resourceFile, sourceScriptUrl: response.url(), lastSeen: now } },
-            );
-            console.log(`[=] Skipped (known): ${ext.extensionId}`);
-            return;
-          }
-
-          console.log(`Fetching info for: ${ext.extensionId}`);
-          const info = await fetchExtensionInfo(ext.extensionId);
-          if (info.name !== '(fetch error)') {
-            await Extension.findOneAndUpdate(
-              { extensionId: ext.extensionId },
-              {
-                $set: {
-                  resourceFile: ext.resourceFile,
-                  sourceScriptUrl: response.url(),
-                  name: info.name ?? undefined,
-                  storeUrl: info.storeUrl ?? undefined,
-                  lastSeen: now,
-                },
-                $setOnInsert: { firstSeen: now },
-              },
-              { upsert: true },
-            );
-            console.log(`[✓] Upserted: ${ext.extensionId} (${info.name ?? 'unknown'})`);
+        for (const ext of foundExtensions) {
+          const existing = registry.get(ext.extensionId);
+          if (existing) {
+            if (existing.state === 'complete') {
+              // Already resolved — just refresh metadata
+              await Extension.updateOne(
+                { extensionId: ext.extensionId },
+                { $set: { resourceFile: ext.resourceFile, sourceScriptUrl: response.url(), lastSeen: new Date() } },
+              );
+              console.log(`[=] Skipped (complete): ${ext.extensionId}`);
+            } else {
+              // In-flight or pending — update metadata on the record; processor will handle it
+              existing.resourceFile = ext.resourceFile;
+              existing.sourceScriptUrl = response.url();
+              console.log(`[~] Updated metadata for in-progress: ${ext.extensionId}`);
+            }
           } else {
-            retryQueue.push({
-              extensionId: ext.extensionId,
-              resourceFile: ext.resourceFile,
-              sourceScriptUrl: response.url(),
-              attempts: 1,
-            });
-            console.log(`[!] Queued for retry: ${ext.extensionId}`);
+            registry.set(ext.extensionId, new ExtensionRecord(ext.extensionId, ext.resourceFile, response.url()));
+            console.log(`[+] Registered: ${ext.extensionId}`);
           }
-        }));
+        }
       }
     } catch {
       // Ignore files that can't be read
+    } finally {
+      activeHandlers--;
     }
   }
 });
 
 console.log('Navigating and scanning...');
+const processorDone = runProcessor();
 await page.goto(TARGET_URL, { waitUntil: 'domcontentloaded' });
-console.log('\n[*] Scan complete.\n');
-
-if (retryQueue.length > 0) {
-  console.log(`[~] Draining retry queue (${retryQueue.length} items)...`);
-  while (retryQueue.length > 0) {
-    const item = retryQueue.shift()!;
-    await new Promise(r => setTimeout(r, 100));
-    console.log(`[~] Retry attempt ${item.attempts} for ${item.extensionId}`);
-    const info = await fetchExtensionInfo(item.extensionId);
-    const now = new Date();
-    if (info.name !== '(fetch error)') {
-      await Extension.findOneAndUpdate(
-        { extensionId: item.extensionId },
-        {
-          $set: {
-            resourceFile: item.resourceFile,
-            sourceScriptUrl: item.sourceScriptUrl,
-            name: info.name ?? undefined,
-            storeUrl: info.storeUrl ?? undefined,
-            lastSeen: now,
-          },
-          $setOnInsert: { firstSeen: now },
-        },
-        { upsert: true },
-      );
-      console.log(`[✓] Retry OK: ${item.extensionId} (${info.name ?? 'unknown'})`);
-    } else if (item.attempts < MAX_RETRY_ATTEMPTS) {
-      retryQueue.push({ ...item, attempts: item.attempts + 1 });
-    } else {
-      await Extension.findOneAndUpdate(
-        { extensionId: item.extensionId },
-        {
-          $set: {
-            resourceFile: item.resourceFile,
-            sourceScriptUrl: item.sourceScriptUrl,
-            name: '(fetch error)',
-            lastSeen: now,
-          },
-          $setOnInsert: { firstSeen: now },
-        },
-        { upsert: true },
-      );
-      console.log(`[✗] Gave up: ${item.extensionId}`);
-    }
-  }
-  console.log('[*] Retry queue drained.\n');
-}
+console.log('\n[*] Scan complete. Waiting for processor to drain...\n');
+scanDone = true;
+await processorDone;
+console.log('[*] All records processed.\n');
 
 page.on('close', async () => {
   console.log('[+] Browser closed');
