@@ -1,6 +1,11 @@
 import { chromium } from 'playwright';
 import mongoose, { Schema, model } from 'mongoose';
+import dotenv from "dotenv";
 
+// Učitava .env fajl
+let cfg = dotenv.config();
+
+if(cfg.error) throw new Error(JSON.stringify(cfg.error))
 // --- Mongoose model ---
 interface IExtension {
   extensionId: string;
@@ -41,8 +46,9 @@ async function fetchExtensionInfo(extensionId: string): Promise<{ extensionId: s
 }
 
 // --- Main ---
-const TARGET_URL = 'https://www.linkedin.com/feed/';
+const TARGET_URL = 'https://www.linkedin.com/';
 const {MONGO_USER, MONGO_PASS, MONGO_AUTH, MONGO_URI} = process.env
+console.log(MONGO_USER, MONGO_PASS, MONGO_AUTH, MONGO_URI)
 
 await mongoose.connect(MONGO_URI!, {
   authMechanism: "DEFAULT", authSource: MONGO_AUTH, auth: {username: MONGO_USER, password: MONGO_PASS}
@@ -50,7 +56,12 @@ await mongoose.connect(MONGO_URI!, {
 console.log('[*] Connected to MongoDB');
 
 const browser = await chromium.connectOverCDP('http://localhost:9222', { isLocal: true });
-const page = await browser.newPage();
+const contexts = browser.contexts()
+const pages = contexts.map(context => context.pages()).flat()
+const page = pages.find(p => p.url().includes(TARGET_URL));
+if (!page) {
+    throw new Error(`No open tab found for URL: ${TARGET_URL}`);
+}
 
 const extensionPattern = /['"]?id['"]?\s*:\s*['"]([a-z]{32})['"]\s*,\s*['"]?file['"]?\s*:\s*['"]([^'"]+)['"]/g;
 
@@ -96,7 +107,7 @@ page.on('response', async (response) => {
 });
 
 console.log('Navigating and scanning...');
-await page.goto(TARGET_URL, { waitUntil: 'networkidle' });
+await page.goto(TARGET_URL, { waitUntil: 'domcontentloaded' });
 console.log('\n[*] Scan complete.\n');
 
 page.on('close', async () => {
