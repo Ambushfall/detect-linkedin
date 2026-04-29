@@ -1,6 +1,6 @@
-import EventEmitter from "events";
+import EventEmitter from "node:events";
 
-class MyEmitter extends EventEmitter {}
+let emitter = new EventEmitter();
 
 let testVal = [
   'aaaeoelkococjpgngfokhbkkfiiegolp',
@@ -4320,7 +4320,13 @@ class LiExtensionRecords {
       }
     });
   }
+
+  
 }
 
 let extensionList = new LiExtensionRecords(testVal)
 console.log(extensionList)
+
+
+emitter.on("success", (args) => console.log(...args));
+emitter.on("fail", (args) => console.log(...args));

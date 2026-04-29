@@ -127,26 +127,6 @@ class ExtensionRecord {
   }
 }
 
-class LiExtensionRecords{
-  liExtensions:string[];
-  liExtensionLinks: string[];
-  liSuccessExtensions: string[] = [];
-  constructor(extensions:string[]) {
-    this.liExtensions = extensions;
-    this.liExtensionLinks = extensions.map(item => `https://chromewebstore.google.com/detail/${item}`);
-  }
-
-  async processFetches(){
-    let promiseList = this.liExtensionLinks.map(item => fetch(item));
-    (await Promise.allSettled(this.liExtensionLinks)).forEach((response) => {
-      if(response.status === "fulfilled" && response.value !== undefined){
-        this.liSuccessExtensions.push(response.value);
-      } else {
-        
-      }
-    })
-  }
-}
 
 const registry = new Map<string, ExtensionRecord>();
 let activeHandlers = 0;
