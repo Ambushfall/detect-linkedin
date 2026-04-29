@@ -6,6 +6,14 @@ import dotenv from "dotenv";
 let cfg = dotenv.config();
 
 if(cfg.error) throw new Error(JSON.stringify(cfg.error))
+
+const CONCURRENCY     = 10;
+const REQUEST_TIMEOUT = 15_000;
+const RETRY_COUNT     = 3;
+const RETRY_DELAY     = 2_000;
+
+const sleep = (ms: number) => new Promise<void>(r => setTimeout(r, ms));
+
 // --- Mongoose model ---
 interface IExtension {
   extensionId: string;
@@ -29,31 +37,92 @@ const extensionSchema = new Schema<IExtension>({
 
 const Extension = model<IExtension>('Extension', extensionSchema);
 
-// --- Chrome Web Store metadata fetcher ---
-async function fetchExtensionInfo(
-  extensionId: string,
-): Promise<{ extensionId: string; name: string | null; storeUrl: string | null }> {
-  const storeUrl = `https://chromewebstore.google.com/detail/${extensionId}`;
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 10_000);
-  try {
-    const pageRes = await fetch(storeUrl, { signal: controller.signal });
-    const html = await pageRes.text();
-    const titleMatch = html.match(/<title>([^<]+?)(?:\s*-\s*Chrome Web Store)?<\/title>/i);
-    const name = titleMatch && titleMatch[1] && !titleMatch[1].includes('Chrome Web Store')
-      ? titleMatch[1].trim()
-      : null;
-    return { extensionId, name, storeUrl };
-  } catch {
-    return { extensionId, name: '(fetch error)', storeUrl: null };
-  } finally {
-    clearTimeout(timer);
+// --- Shared fetch headers ---
+const FETCH_HEADERS = {
+  'User-Agent':
+    'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 ' +
+    '(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+  'Accept-Language': 'en-US,en;q=0.9',
+};
+
+// --- HTML name parser ---
+function parseName(html: string): string | null {
+  const ogMatch = html.match(
+    /<meta[^>]+property=["']og:title["'][^>]+content=["'](.*?)["']/i,
+  );
+  if (ogMatch?.[1]?.trim()) return ogMatch[1].trim();
+
+  const titleMatch = html.match(/<title>([^<]+?)<\/title>/i);
+  if (titleMatch?.[1]) {
+    return titleMatch[1].trim().replace(/\s*-\s*Chrome Web Store\s*$/i, '').trim() || null;
   }
+  return null;
+}
+
+// --- Chrome Web Store metadata fetcher ---
+async function fetchExtensionInfo(extensionId: string): Promise<{
+  extensionId: string;
+  name: string;
+  storeUrl: string | null;
+  terminal: boolean;
+}> {
+  const storeUrl = `https://chromewebstore.google.com/detail/${extensionId}`;
+
+  for (let attempt = 0; attempt < RETRY_COUNT; attempt++) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT);
+    try {
+      const resp = await fetch(storeUrl, {
+        headers: FETCH_HEADERS,
+        signal: controller.signal,
+      });
+      clearTimeout(timer);
+
+      if (resp.status === 404) {
+        return { extensionId, name: '[not found]', storeUrl: null, terminal: true };
+      }
+      if (resp.status === 429) {
+        await sleep(RETRY_DELAY * (attempt + 2));
+        continue;
+      }
+      if (resp.status !== 200) {
+        return { extensionId, name: `[http ${resp.status}]`, storeUrl: null, terminal: true };
+      }
+
+      const html = await resp.text();
+      const name = parseName(html) ?? '[parse failed]';
+      return { extensionId, name, storeUrl, terminal: true };
+    } catch {
+      clearTimeout(timer);
+      if (attempt < RETRY_COUNT - 1) await sleep(RETRY_DELAY);
+    }
+  }
+
+  return { extensionId, name: '[error]', storeUrl: null, terminal: false };
 }
 
 const MAX_RETRY_ATTEMPTS = 10;
 
 type ExtensionState = 'pending' | 'fetching' | 'complete' | 'failed';
+
+let doneCount = 0;
+let processorStart = 0;
+
+const registry = new Map<string, ExtensionRecord>();
+
+function logProgress(): void {
+  const total = registry.size;
+  if (total === 0) return;
+  if (doneCount % 50 === 0 || doneCount === total) {
+    const elapsed = (Date.now() - processorStart) / 1000;
+    const rate = elapsed > 0 ? doneCount / elapsed : 0;
+    const remaining = rate > 0 ? (total - doneCount) / rate : 0;
+    console.log(
+      `  ${doneCount}/${total} (${((doneCount / total) * 100).toFixed(1)}%)` +
+      ` — ${rate.toFixed(1)} req/s — ~${remaining.toFixed(0)}s remaining`,
+    );
+  }
+}
 
 class ExtensionRecord {
   extensionId: string;
@@ -61,6 +130,7 @@ class ExtensionRecord {
   sourceScriptUrl: string;
   attempts: number;
   state: ExtensionState;
+  finalName?: string;
 
   constructor(
     extensionId: string,
@@ -86,15 +156,17 @@ class ExtensionRecord {
     this.attempts++;
     const info = await fetchExtensionInfo(this.extensionId);
     const now = new Date();
-    if (info.name !== '(fetch error)') {
+    const isSuccess = !info.name.startsWith('[');
+
+    if (isSuccess || info.terminal) {
       await Extension.findOneAndUpdate(
         { extensionId: this.extensionId },
         {
           $set: {
             resourceFile: this.resourceFile,
             sourceScriptUrl: this.sourceScriptUrl,
-            name: info.name ?? undefined,
-            storeUrl: info.storeUrl ?? undefined,
+            name: info.name,
+            storeUrl: isSuccess ? (info.storeUrl ?? undefined) : undefined,
             lastSeen: now,
           },
           $setOnInsert: { firstSeen: now },
@@ -102,7 +174,12 @@ class ExtensionRecord {
         { upsert: true },
       );
       this.state = 'complete';
-      console.log(`[✓] Complete: ${this.extensionId} (${info.name ?? 'unknown'})`);
+      this.finalName = info.name;
+      if (isSuccess) {
+        console.log(`[✓] Complete: ${this.extensionId} (${info.name})`);
+      } else {
+        console.log(`[✗] Terminal: ${this.extensionId} (${info.name})`);
+      }
     } else {
       this.state = 'failed';
       if (this.attempts >= MAX_RETRY_ATTEMPTS) {
@@ -112,23 +189,24 @@ class ExtensionRecord {
             $set: {
               resourceFile: this.resourceFile,
               sourceScriptUrl: this.sourceScriptUrl,
-              name: '(fetch error)',
+              name: info.name,
               lastSeen: now,
             },
             $setOnInsert: { firstSeen: now },
           },
           { upsert: true },
         );
-        console.log(`[✗] Gave up: ${this.extensionId}`);
+        this.finalName = info.name;
+        console.log(`[✗] Gave up: ${this.extensionId} (${info.name})`);
       } else {
         console.log(`[!] Failed (attempt ${this.attempts}): ${this.extensionId}`);
       }
     }
+    doneCount++;
+    logProgress();
   }
 }
 
-
-const registry = new Map<string, ExtensionRecord>();
 let activeHandlers = 0;
 let scanDone = false;
 
@@ -136,12 +214,12 @@ async function runProcessor(): Promise<void> {
   while (true) {
     const next = [...registry.values()].find(r => r.isRetriable);
     if (!next) {
-      if (scanDone && activeHandlers === 0) break;
-      await new Promise(r => setTimeout(r, 50));
+      const hasInflight = [...registry.values()].some(r => r.state === 'fetching');
+      if (scanDone && activeHandlers === 0 && !hasInflight) break;
+      await sleep(50);
       continue;
     }
     await next.process();
-    await new Promise(r => setTimeout(r, 100));
   }
 }
 
@@ -156,7 +234,7 @@ await mongoose.connect(MONGO_URI!, {
 console.log('[*] Connected to MongoDB');
 
 const failedDocs = await Extension.find(
-  { name: '(fetch error)' },
+  { name: { $in: ['(fetch error)', '[error]'] } },
   { extensionId: 1, resourceFile: 1, sourceScriptUrl: 1 },
 ).lean();
 for (const doc of failedDocs) {
@@ -222,11 +300,22 @@ page.on('response', async (response) => {
 });
 
 console.log('Navigating and scanning...');
-const processorDone = runProcessor();
+processorStart = Date.now();
+const processorDone = Promise.all(
+  Array.from({ length: CONCURRENCY }, () => runProcessor()),
+);
 await page.goto(TARGET_URL, { waitUntil: 'domcontentloaded' });
 console.log('\n[*] Scan complete. Waiting for processor to drain...\n');
 scanDone = true;
 await processorDone;
+
+const elapsed = ((Date.now() - processorStart) / 1000).toFixed(1);
+const allRecords = [...registry.values()];
+const named    = allRecords.filter(r => r.finalName && !r.finalName.startsWith('[')).length;
+const notFound = allRecords.filter(r => r.finalName === '[not found]').length;
+const errors   = allRecords.filter(r => r.finalName?.startsWith('[') && r.finalName !== '[not found]').length;
+console.log(`[*] Done in ${elapsed}s`);
+console.log(`    ${named} named, ${notFound} not found/removed, ${errors} errors`);
 console.log('[*] All records processed.\n');
 
 page.on('close', async () => {
