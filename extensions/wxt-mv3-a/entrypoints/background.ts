@@ -1,5 +1,4 @@
 import { type ScanResult } from '@/tools/scanresults'
-
 export default defineBackground(() => {
   // --- Startup: restore badge from persistent storage ---
   InitBadgeWithStorage()
@@ -22,7 +21,7 @@ export default defineBackground(() => {
   browser.runtime.onMessage.addListener(
     (message: { type: string; results: ScanResult[] }) => {
       if (message.type === 'SCAN_RESULTS') {
-        console.table(message.results)
+        // console.table(message.results)
         handleScanResults(message as { type: string; results: ScanResult[] })
       }
     }
@@ -41,40 +40,32 @@ async function fetchExtensionNames (extensionIds: string[]): Promise<void> {
           `https://api.cors.lol/?url=chromewebstore.google.com/detail/_/${id}`
         )
         if (!response.ok) return null
-        const html = await response.text()
-        const match = html.match(/<title>([^<]*)<\/title>/i)
-        const parser = new DOMParser()
-        const newHtml = parser.parseFromString(html, 'text/html')
-        const xpath = '//img[contains(@alt, "Item logo image for")]'
-        const xpathres = newHtml.evaluate(
-          xpath,
-          newHtml,
-          null,
-          XPathResult.FIRST_ORDERED_NODE_TYPE,
-          null
-        )
+        const html = await response.text();
+        const titlematches = html.match(/<title>([^<]*)<\/title>/i);
+        const iconmatches = html.match(/<img(?=[^>]*alt=["']Item logo image for)[^>]+src=["']([^"']+)["']/i)!;
 
-        const element = xpathres.singleNodeValue as HTMLImageElement
-        if (!match) return null
-        const name = match[1].replace(/ - Chrome Web Store$/, '').trim()
-        return { extensionId: id, name, iconUrl: element!.src }
-      } catch {
+        if (!titlematches) return null;
+        const name = titlematches[1].replace(/ - Chrome Web Store$/, '').trim();
+        return { extensionId: id, name, iconUrl: (iconmatches && iconmatches.length > 0) ? iconmatches[1] : ""
+        }
+      } catch (error) {
+        console.warn(error);
         return null
       }
     })
   )
 
-  const successful = nameResults.filter(r => r !== null) as {
-    extensionId: string
-    name: string
-  }[]
+  const successful = nameResults.filter(r => r !== null)
   if (successful.length === 0) return
 
   const data = await browser.storage.local.get('linkedin')
   const results: ScanResult[] = (data.linkedin as ScanResult[]) ?? []
-  for (const { extensionId, name } of successful) {
+  for (const { extensionId, name, iconUrl } of successful) {
     const entry = results.find(r => r.extensionId === extensionId)
-    if (entry) entry.name = name
+    if (entry){
+      entry.name = name;
+      entry.iconUrl = iconUrl;
+    }
   }
   await browser.storage.local.set({ linkedin: results })
 }
@@ -87,8 +78,8 @@ async function InitBadgeWithStorage () {
     await browser.action.setBadgeText({ text: String(count) })
     await browser.action.setBadgeBackgroundColor({ color: '#FF4444' })
   }
-  const unnamed = results.filter(r => !r.name).map(r => r.extensionId)
-  fetchExtensionNames(unnamed)
+  // const unnamed = results.filter(r => !r.name || !r.iconUrl).map(r => r.extensionId)
+  // fetchExtensionNames(unnamed)
 }
 
 async function handleScanResults (message: {
@@ -96,7 +87,8 @@ async function handleScanResults (message: {
   results: ScanResult[]
 }) {
   const data = await browser.storage.local.get('linkedin')
-  const existing = (data.linkedin as ScanResult[]) || []
+  const existing = (data.linkedin as ScanResult[]) || [];
+  // console.table(existing);
   const existingIds = new Set(existing.map(r => r.extensionId))
 
   const delta = message.results.filter(r => !existingIds.has(r.extensionId))
@@ -112,8 +104,9 @@ async function handleScanResults (message: {
       `[Extension Detector] +${delta.length} new fingerprint(s), ${updated.length} total`
     )
   } else {
-
-    console.log(`[Extension Detector] updating names for a total of ${existing.filter(r => !r.name).map(r => r.extensionId).length}`)
-    fetchExtensionNames(existing.filter(r => !r.name).map(r => r.extensionId));
+    const missingData = existing.filter(r => !r.name || !r.iconUrl);
+    console.log(`[Extension Detector] updating missing data for #${missingData.length} items.`)
+    
+    fetchExtensionNames(missingData.map(r => r.extensionId));
   }
 }

@@ -7,14 +7,24 @@ function getLastItemSplit(string : string,separator : string){
 export default function ExtensionView({ result }: { result: ScanResult }) {
   return (
     <div className="bg-[rgba(255,255,255,0.03)] border border-[rgba(255,255,255,0.06)] rounded-lg py-3 px-3.5 mb-2 last:mb-0 hover:border-[rgba(0,212,255,0.2)] transition-colors">
-      <div className="flex items-stretch gap-2.5">
-        <div className="shrink-0 flex pr-20">
+      <div 
+      className="flex flex-row gap-2.5"
+      >
+        <div 
+        className="shrink-0 flex"
+        >
           {result.iconUrl ? (
-            <img src={result.iconUrl} className="h-full aspect-square rounded object-cover" />
+            <img src={result.iconUrl} 
+            className="h-full aspect-square rounded object-cover" 
+            width={60} height={60}/>
           ) : (
-            <div className="h-full aspect-square rounded bg-[rgba(0,212,255,0.1)] border border-[rgba(0,212,255,0.15)] flex items-center justify-center text-[13px] font-bold text-[#00d4ff] uppercase">
+            <p className="h-full p-8 aspect-square rounded 
+            bg-[rgba(0,212,255,0.1)] border 
+            border-[rgba(0,212,255,0.15)] 
+            flex items-center justify-center 
+            text-[13px] font-bold text-[#00d4ff] uppercase">
               {result.extensionId[0]}
-            </div>
+            </p>
           )}
         </div>
         <div className="flex-1 min-w-0 pl-2">

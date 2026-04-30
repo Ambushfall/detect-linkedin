@@ -1,4 +1,5 @@
-import ExtensionView, { type ScanResult } from '@/components/ExtensionView';
+import ExtensionView from '@/components/ExtensionView';
+import { type ScanResult } from '@/tools/scanresults';
 
 export default function ExtensionsList({ results }: { results: ScanResult[] }) {
   return (
