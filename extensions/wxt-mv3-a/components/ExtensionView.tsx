@@ -1,10 +1,4 @@
-export interface ScanResult {
-  extensionId: string;
-  resourceFile: string;
-  sourceUrl: string;
-  name?: string;
-  iconUrl?: string;
-}
+import { type ScanResult } from "@/tools/scanresults";
 
 function getLastItemSplit(string : string,separator : string){
   return string.split(separator)[string.split(separator).length - 1];

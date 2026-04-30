@@ -25,6 +25,7 @@ async function scanUrl(url: string) {
     if (found.length > 0) {
       console.log('[Extension Detector] Fingerprinting script found at: ' + url);
       console.table(found);
+      
       browser.runtime.sendMessage({ type: 'SCAN_RESULTS', results: found });
     }
   }, 0);
@@ -35,6 +36,7 @@ export default defineContentScript({
   runAt: 'document_end',
   main() {
     browser.runtime.onMessage.addListener((message) => {
+      
       if (message.type === 'SCAN_SCRIPT' && message.url) scanUrl(message.url as string);
     });
   },

@@ -1,6 +1,6 @@
 {
   "name": "detect-linkedin",
-  "description": "manifest.json description",
+  "description": "Detect Linkedin's data scraping for extensions",
   "private": true,
   "version": "0.0.0",
   "type": "module",

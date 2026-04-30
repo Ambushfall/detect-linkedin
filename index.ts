@@ -64,6 +64,8 @@ if (!page) {
 }
 
 const extensionPattern = /['"]?id['"]?\s*:\s*['"]([a-z]{32})['"]\s*,\s*['"]?file['"]?\s*:\s*['"]([^'"]+)['"]/g;
+const knownExtensions = await Extension.find({ name: { $nin: ["(fetch error)"] } }, { extensionId: 1 }).lean();
+
 
 page.on('response', async (response) => {
   if (response.request().resourceType() === 'script' || response.url().endsWith('.js')) {
@@ -76,11 +78,12 @@ page.on('response', async (response) => {
       while ((match = extensionPattern.exec(body)) !== null) {
         foundExtensions.push({ extensionId: match[1], resourceFile: match[2] });
       }
-
-      if (foundExtensions.length > 0) {
+      const knownIds = knownExtensions.map(ext => ext.extensionId);
+      const newExtensions = foundExtensions.filter(ext => !knownIds.includes(ext.extensionId));
+      if (newExtensions.length > 0) {
         console.log(`\n[!] Fingerprinting script found at: ${response.url()}`);
         const now = new Date();
-        await Promise.all(foundExtensions.map(async (ext) => {
+        await Promise.all(newExtensions.map(async (ext) => {
           console.log(`Fetching info for: ${ext.extensionId}`);
           const info = await fetchExtensionInfo(ext.extensionId);
           await Extension.findOneAndUpdate(
