@@ -67,19 +67,18 @@ async function fetchExtensionNames (extensionIds: string[]): Promise<void> {
       entry.iconUrl = iconUrl;
     }
   }
-  await browser.storage.local.set({ linkedin: results })
+  await browser.storage.local.set({ linkedin: results });
+  await InitBadgeWithStorage();
 }
 
-async function InitBadgeWithStorage () {
+async function InitBadgeWithStorage() {
   const data = await browser.storage.local.get('linkedin')
   const results = (data.linkedin as ScanResult[]) || []
-  const count = results.length
-  if (count > 0) {
-    await browser.action.setBadgeText({ text: String(count) })
+  const counticons = results.length > 0 ? results.filter(e => e.iconUrl).length : 0;
+  if (counticons > 0) {
+    await browser.action.setBadgeText({ text: String(counticons) })
     await browser.action.setBadgeBackgroundColor({ color: '#FF4444' })
   }
-  // const unnamed = results.filter(r => !r.name || !r.iconUrl).map(r => r.extensionId)
-  // fetchExtensionNames(unnamed)
 }
 
 async function handleScanResults (message: {
@@ -96,10 +95,6 @@ async function handleScanResults (message: {
     const updated = existing.concat(delta)
     await browser.storage.local.set({ linkedin: updated })
     fetchExtensionNames(delta.map(r => r.extensionId))
-
-    await browser.action.setBadgeText({ text: String(updated.length) })
-    await browser.action.setBadgeBackgroundColor({ color: '#FF4444' })
-
     console.log(
       `[Extension Detector] +${delta.length} new fingerprint(s), ${updated.length} total`
     )
